@@ -71,6 +71,9 @@ halt (void)
 void
 exit (int status)
 {
+  struct thread current_thread = thread_current();
+  
+  
   syscall1 (SYS_EXIT, status);
   NOT_REACHED ();
 }

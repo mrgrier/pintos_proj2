@@ -100,7 +100,18 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+
+    tid_t parent;
+    struct list child_list;
+    struct child_process* cp;
   };
+
+struct child_process
+{
+  int pid;
+  int status;
+  struct list_elem elem;
+};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -137,5 +148,11 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+bool is_thread_alive(int);
+struct child_process* add_child_process(int, struct thread*);
+struct child_process* get_child_process(int);
+void remove_child_process(struct child_process*);
+void remove_all_child_processes(void);
 
 #endif /* threads/thread.h */

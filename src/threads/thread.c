@@ -8,6 +8,7 @@
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
@@ -205,6 +206,10 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
   sf->ebp = 0;
+
+  struct thread* parent = thread_current();
+  t->parent = parent->tid;
+  t->cp = add_child_process(t->tid, parent);
 
   intr_set_level (old_level);
 
@@ -472,6 +477,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
+
+  list_init(&t->child_list);
+  t->cp = NULL;
+  t->parent = -1;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -587,3 +596,69 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+/* Returns whether the thread with the specified pid is still alive/has not been
+   terminated yet. */
+bool is_thread_alive(int pid)
+{
+  struct list_elem* e;
+
+  for(e = list_begin(&all_list); e != list_end(&all_list); e = list_next(e))
+  {
+    struct thread* t = list_entry(e, struct thread, allelem);
+    
+    if(t->tid == pid)
+      return true;
+  }
+
+  return false;
+}
+
+struct child_process* add_child_process(int pid, struct thread* parent)
+{
+  struct child_process* cp = malloc(sizeof(struct child_process));
+
+  cp->pid = pid;
+  list_push_back(&parent->child_list, &cp->elem);
+
+  return cp;
+}
+
+struct child_process* get_child_process(int pid)
+{
+  struct thread* t = thread_current();
+  struct list_elem* e;
+
+  for(e = list_begin(&t->child_list); 
+      e != list_end(&t->child_list); 
+      e = list_next(e))
+  {
+    struct child_process* cp = list_entry(e, struct child_process, elem);
+    
+    if(cp->pid == pid)
+      return cp;
+  }
+
+  return NULL;
+}
+
+void remove_child_process(struct child_process* cp)
+{
+  list_remove(&cp->elem);
+  free(cp);
+}
+
+void remove_all_child_processes(void)
+{
+  struct thread *t = thread_current();
+  struct list_elem *next, *e = list_begin(&t->child_list);
+
+  while (e != list_end (&t->child_list))
+  {
+    next = list_next(e);
+    struct child_process *cp = list_entry (e, struct child_process, elem);
+    list_remove(&cp->elem);
+    free(cp);
+    e = next;
+  }
+}

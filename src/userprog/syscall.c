@@ -20,6 +20,7 @@ pid_t exec(const char* cmd_line);
 void retrieve_args_from_intr_frame(struct intr_frame* frame, int* args, int num_args);
 int translate_to_kernel_pointer(const void* pointer);
 void validate_pointer(const void*);
+int syscall_wait(pid_t pid);
 
 void syscall_init(void)
 {
@@ -54,7 +55,8 @@ syscall_handler(struct intr_frame *f UNUSED)
     }
     case SYS_WAIT:
     {
-      // TODO: Adam, put your code here.
+      retrieve_args_from_intr_frame(f, &args[0], 1);
+      f->eax = syscall_wait(args[0]);
       break;
     }
     case SYS_CREATE:    
@@ -126,7 +128,7 @@ void validate_pointer(const void* pointer)
     exit(ERROR);
 }
 
-static int
+int
 syscall_wait (pid_t pid)
 {
 	return process_wait(pid);

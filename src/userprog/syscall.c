@@ -66,7 +66,7 @@ syscall_handler(struct intr_frame *f UNUSED)
     case SYS_CLOSE:
     {
       // TODO: implement these functionalities.
-      break:
+      break;
     }
     default:
     {

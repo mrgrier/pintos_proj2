@@ -50,8 +50,27 @@ syscall_handler(struct intr_frame *f UNUSED)
       f->eax = exec((const char*) args[0]);
       break;
     }
+    case SYS_WAIT:
+    {
+      // TODO: Adam, put your code here.
+      break;
+    }
+    case SYS_CREATE:    
+    case SYS_REMOVE:    
+    case SYS_OPEN:
+    case SYS_FILESIZE:
+    case SYS_READ:
+    case SYS_WRITE:
+    case SYS_SEEK:
+    case SYS_TELL:
+    case SYS_CLOSE:
+    {
+      // TODO: implement these functionalities.
+      break:
+    }
     default:
     {
+      // now you fucked up.
       break;
     }
   }

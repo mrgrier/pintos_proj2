@@ -111,6 +111,8 @@ struct child_process
   int pid;
   int status;
   struct list_elem elem;
+  bool wait;
+  bool done;
 };
 
 /* If false (default), use round-robin scheduler.

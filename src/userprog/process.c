@@ -18,6 +18,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/syscall.h"
+#include "threads/synch.h"
 
 #define MAX_ARGUMENT_SIZE 4096
 
@@ -91,11 +92,17 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while(true)
-  {
-    //do nothing, intial implementation.
-  }
-  return -1;
+  struct child_process *child = get_child_process(child_tid);
+  if(!child)
+    return -1;
+  if(child->wait)
+    return -1;
+  child -> wait = true;
+  while(!child->done)
+    barrier();
+  int status = child -> status;
+  remove_child_process(child);
+  return status;
 }
 
 /* Free the current process's resources. */

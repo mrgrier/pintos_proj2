@@ -19,6 +19,8 @@
 #include "threads/vaddr.h"
 #include "userprog/syscall.h"
 
+#define MAX_ARGUMENT_SIZE 4096
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
@@ -226,6 +228,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
+  char *save_ptr; // make a char* to pass into strtok_r for the first time
+  file_name = strtok_r(file_name, " ", &save_ptr); // Get the first word in the command(the file name)
+
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
@@ -307,7 +312,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, file_name, save_ptr))
     goto done;
 
   /* Start address. */
@@ -432,17 +437,90 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, const char* file_name, char** save_ptr) 
 {
   uint8_t *kpage;
   bool success = false;
-
+  char s[] = " ";
+  char *token;
+  int length;
+  int argc = 0;
+  int pointersPushed = 0;
+  int charPtrSize;
+  int charPtrPtrSize;
+  int* intPtr;
+  void* tempEsp;
+  char* argp;
+  char** argv;
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
+      {
         *esp = PHYS_BASE;
+        tempEsp = *esp;
+        charPtrSize = tempEsp - ((char*) tempEsp - 1); //This line, and lines similar to it decrement the stack pointer by the size of the casted type.
+  
+        //Push the file name onto the stack
+        length = strlen(file_name) + 1; 
+        tempEsp = (char*)tempEsp - length;
+        strlcpy((char*) tempEsp, file_name, length);
+        argc++;
+
+        //Check whether we can push more arguments 
+        if (PHYS_BASE - tempEsp > MAX_ARGUMENT_SIZE)
+          return false;
+
+        //Push each argument onto the stack
+        for (token = strtok_r (s, " ", &save_ptr); token != NULL;
+        token = strtok_r (NULL, " ", &save_ptr))
+        {
+          length = strlen(token) + 1; 
+          tempEsp -= (charPtrSize * length);
+          strlcpy((char*) tempEsp, token, length);
+          argc++;
+        
+          //Check whether we can push more arguments 
+          if (PHYS_BASE - tempEsp > MAX_ARGUMENT_SIZE)
+            return false;
+        }
+        //Preserve the location of tempEsp so we can push the addresses of the arguments later
+        argp = (char *)tempEsp;
+        //Align words by rounding the stack
+        tempEsp = tempEsp - 4 + (int)(*esp - tempEsp) % 4;
+        //PUSH null pointer
+        tempEsp -= charPtrSize;
+        *((char*)tempEsp) = 0;
+
+        //PUSH addresses of arguments
+        while(pointersPushed < argc)
+        {
+          while(*(argp - 1) != '\0')
+          {
+            argp++;
+          }
+          tempEsp -= charPtrSize;
+          *((char**) tempEsp) = argp;    
+          pointersPushed++;
+          argp++;
+        }
+        //PUSH the array argv
+        argv = (char**) tempEsp;
+        tempEsp = ((char**) tempEsp - 1);
+        *((char***) tempEsp) = argv;
+        
+        //PUSH number of arguments   
+        tempEsp = ((int *) tempEsp - 1);
+        *tempEsp = argc;
+
+        //PUSH fake memory address
+        tempEsp = ((void **) tempEsp - 1);
+        *((void **) tempEsp) = 0;
+
+        //Make esp point to correct place on the stack again.
+        *esp = tempEsp;
+      }
       else
         palloc_free_page (kpage);
     }

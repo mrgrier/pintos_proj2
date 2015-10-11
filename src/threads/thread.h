@@ -116,6 +116,8 @@ struct child_process
   int status;
   int load_status;
   struct list_elem elem;
+  bool wait;
+  bool done;
 };
 
 /* If false (default), use round-robin scheduler.

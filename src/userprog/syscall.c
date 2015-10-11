@@ -6,6 +6,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/synch.h"
+#include "userprog/process.h"
+#include "devices/shutdown.h"
 #include "threads/vaddr.h"
 #include "devices/shutdown.h"
 #include "filesys/filesys.h"
@@ -28,6 +30,7 @@ bool create(const char* file, unsigned initial_size);
 void retrieve_args_from_intr_frame(struct intr_frame* frame, int* args, int num_args);
 int translate_to_kernel_pointer(const void* pointer);
 void validate_pointer(const void*);
+int syscall_wait(pid_t pid);
 
 void syscall_init(void)
 {
@@ -63,7 +66,8 @@ syscall_handler(struct intr_frame *f UNUSED)
     }
     case SYS_WAIT:
     {
-      // TODO: Adam, put your code here.
+      retrieve_args_from_intr_frame(f, &args[0], 1);
+      f->eax = syscall_wait(args[0]);
       break;
     }
     case SYS_CREATE:
@@ -156,4 +160,10 @@ void validate_pointer(const void* pointer)
 {
   if(!is_user_vaddr(pointer))
     exit(ERROR);
+}
+
+int
+syscall_wait (pid_t pid)
+{
+	return process_wait(pid);
 }

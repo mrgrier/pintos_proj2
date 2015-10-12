@@ -13,6 +13,8 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/syscall.h"
@@ -22,6 +24,7 @@
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
+#define MIN_FD 2
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -481,6 +484,9 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->child_list);
   t->cp = NULL;
   t->parent = -1;
+
+  list_init(&t->file_list);
+  t->fd = MIN_FD;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

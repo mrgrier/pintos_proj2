@@ -6,10 +6,11 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/synch.h"
+#include "threads/malloc.h"
+#include "threads/vaddr.h"
 #include "userprog/process.h"
 #include "devices/shutdown.h"
-#include "threads/vaddr.h"
-#include "devices/shutdown.h"
+#include "devices/input.h"
 #include "filesys/filesys.h"
 #include "process.h"
 
@@ -25,6 +26,9 @@ void halt(void);
 void exit(int);
 pid_t exec(const char* cmd_line);
 bool create(const char* file, unsigned initial_size);
+bool remove(const char* file);
+int open(const char* file);
+int filesize(int fd);
 
 // helper functions
 void retrieve_args_from_intr_frame(struct intr_frame* frame, int* args, int num_args);
@@ -78,8 +82,25 @@ syscall_handler(struct intr_frame *f UNUSED)
       break;
     }
     case SYS_REMOVE:
+    {
+      retrieve_args_from_intr_frame(f, &args[0], 1);
+      args[0] = translate_to_kernel_pointer((const void*) args[0]);
+      f->eax = remove((const char*) args[0]);
+      break;
+    }
     case SYS_OPEN:
+    {
+      retrieve_args_from_intr_frame(f, &args[0], 1);
+      args[0] = translate_to_kernel_pointer((const void*) args[0]);
+      f->eax = open((const char*) args[0]);
+      break;
+    }
     case SYS_FILESIZE:
+    {
+      retrieve_args_from_intr_frame(f, &args[0], 1);
+      f->eax = filesize(args[0]);
+      break;
+    }
     case SYS_READ:
     case SYS_WRITE:
     case SYS_SEEK:
@@ -132,6 +153,70 @@ bool create(const char* file, unsigned initial_size)
   return success;
 }
 
+bool remove(const char* file)
+{
+  lock_acquire(&file_lock);
+  bool success = filesys_remove(file);
+  lock_release(&file_lock);
+  return success;
+}
+
+int open(const char* file)
+{
+  int fd;
+
+  lock_acquire(&file_lock);
+  struct file* f = filesys_open(file);
+  
+  fd = f == NULL
+            ? -1 
+            : add_file(f);
+
+  lock_release(&file_lock);
+  return fd;
+}
+
+int filesize(int fd)
+{
+  int size;
+
+  lock_acquire(&file_lock);
+
+  struct file* f = get_file(fd);
+  size = f == NULL 
+              ? -1 
+              : file_length(f);
+
+  lock_release(&file_lock);
+
+  return size;
+}
+
+int read(int fd, void* buffer, unsigned size)
+{
+  if(fd == STDIN_FILENO)
+  {
+    unsigned i;
+    uint8_t* cast_buffer = (uint8_t*) buffer;
+
+    for(i = 0; i < size; i++)
+    {
+      cast_buffer[i] = input_getc();
+    }
+
+    return size;
+  }
+
+  int bytes_read;
+  lock_acquire(&file_lock);
+
+  struct file* f = get_file(fd);
+  bytes_read = f == NULL ? -1 : file_read(f, buffer, size);
+
+  lock_release(&file_lock);
+  return bytes_read;
+}
+
 void retrieve_args_from_intr_frame(struct intr_frame* frame, int* args, int num_args)
 {
   int i;
@@ -166,4 +251,80 @@ int
 syscall_wait (pid_t pid)
 {
 	return process_wait(pid);
+}
+
+int add_file(struct file* f)
+{
+  struct thread* cur = thread_current();
+
+  struct process_file* pf = malloc(sizeof(struct process_file));
+  pf->file = f;
+  pf->fd = cur->fd;
+
+  cur->fd++;
+
+  list_push_back(&cur->file_list, &pf->elem);
+
+  return pf->fd;
+}
+
+struct file* get_file(int fd)
+{
+  struct thread* cur = thread_current();
+  struct list_elem* e;
+
+  for(e = list_begin(&cur->file_list); 
+      e != list_end(&cur->file_list);
+      e = list_next(e))
+  {
+    struct process_file* pf = list_entry(e, struct process_file, elem);
+
+    if(fd == pf->fd)
+    {
+      return pf->file;
+    }
+  }
+
+  return NULL;
+}
+
+void close_file(int fd)
+{
+  struct thread* cur = thread_current();  
+  struct list_elem* e;
+
+  for(e = list_begin(&cur->file_list);
+      e != list_end(&cur->file_list);
+      e = list_next(e))
+  {
+    struct process_file* pf = list_entry(e, struct process_file, elem);    
+
+    if(pf->fd == fd)
+    {
+      file_close(pf->file);
+      list_remove(&pf->elem);
+      free(pf);
+      return;
+    }
+  }
+}
+
+void close_all_files(void)
+{
+  struct thread* cur = thread_current();
+  struct list_elem* next;
+  struct list_elem* e;
+
+  for(e = list_begin(&cur->file_list);
+      e != list_begin(&cur->file_list);)
+  {
+    next = list_next(e);
+    
+    struct process_file* pf = list_entry(e, struct process_file, elem);
+    file_close(pf->file);
+    list_remove(&pf->elem);
+    free(pf);
+
+    e = next;
+  }
 }

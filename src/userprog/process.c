@@ -19,11 +19,12 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/synch.h"
+#include "threads/malloc.h"
 
 #define MAX_ARGUMENT_SIZE 4096
 
 static thread_func start_process NO_RETURN;
-static bool load (char *cmdline, void (**eip) (void), void **esp);
+static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -60,18 +61,95 @@ start_process (void *file_name_)
   printf("%s\n", file_name_);
   struct intr_frame if_;
   bool success;
+    struct thread *cur;
+  char *save_ptr;
+  char *token;
+  int i, j;
+  int argc = 0;
+  void* stack_pointer;
+  char* argv[100];
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
+    /* Extract file name. */
+  token = strtok_r (file_name, " ", &save_ptr);
+
   printf("%d\n", success);
   success = load (file_name, &if_.eip, &if_.esp);
   printf("%d\n", success);
-  thread_current()->cp->load_status = success
-                                    ? LOADED_SUCCESSFULLY
-                                    : LOAD_FAILED;
+  stack_pointer = if_.esp;
+
+  /* Tokenise String and push each token on the stack. */
+    do
+    {
+      argv[argc] = token;
+      argc++;
+      token = strtok_r (NULL, " ", &save_ptr);
+    } while (token != NULL);
+
+    for (j = argc - 1; j >= 0; --j)
+      {
+        size_t len = strlen (argv[j]) + 1;
+        stack_pointer = (void*) (((char*) stack_pointer) - len);
+        strlcpy ((char*)stack_pointer, argv[j], len);
+        argv[j] = (char*) stack_pointer;
+      }
+
+  /* Round stack pionter down to a multiple of 4. */
+  stack_pointer = (void*) (((intptr_t) stack_pointer) & 0xfffffffc);
+
+  /* Push null sentinel. */
+  stack_pointer = (((char**) stack_pointer) - 1);
+  *((char*)(stack_pointer)) = 0;
+
+  /* Push pointers to arguments. */
+  for (i = argc - 1; i >= 0; --i)
+    {
+      stack_pointer = (((char**) stack_pointer) - 1);
+      *((char**) stack_pointer) = argv[i];
+    }
+
+  /* Push argv. */
+  char** first_arg_pointer = (char**) stack_pointer;
+  stack_pointer = (((char**) stack_pointer) - 1);
+  *((char***) stack_pointer) = first_arg_pointer;
+
+
+  /* Push argc. */
+  int* stack_int_pointer = (int*) stack_pointer;
+  --stack_int_pointer;
+  *stack_int_pointer = argc;
+  stack_pointer = (void*) stack_int_pointer;
+
+  /* Push null sentinel. */
+  stack_pointer = (((void**) stack_pointer) - 1);
+  *((void**)(stack_pointer)) = 0;
+
+  if_.esp = stack_pointer;
+
+  cur = thread_current();
+
+  if (success) 
+  {
+    cur->exec = filesys_open (file_name);
+    file_deny_write ( cur->exec );
+    sema_up (&cur->sema_wait);
+  }
+  else
+  {
+    /* If load failed, quit. */
+    palloc_free_page (file_name);
+
+    cur->ret_status = RET_STATUS_ERROR;
+    sema_up (&cur->sema_wait);
+    thread_exit ();
+  }
+
+  /* Free memory */
   printf("asdf 14\n");
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -134,6 +212,7 @@ process_exit (void)
   printf("asdf 20\n");
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  printf ("%s: exit(%d)\n", cur->name, cur->status);
 
   close_all_files();
   remove_all_child_processes();
@@ -238,7 +317,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp, const char* file_name, char** save_ptr);
+static bool setup_stack (void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -249,7 +328,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (char *file_name, void (**eip) (void), void **esp) 
+load (const char *file_name, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -264,8 +343,6 @@ load (char *file_name, void (**eip) (void), void **esp)
     goto done;
   process_activate ();
 
-  char *save_ptr; // make a char* to pass into strtok_r for the first time
-  file_name = strtok_r(file_name, " ", &save_ptr); // Get the first word in the command(the file name)
 
   /* Open executable file. */
   file = filesys_open (file_name);
@@ -348,7 +425,7 @@ load (char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, file_name, &save_ptr))
+  if (!setup_stack (esp))
     goto done;
 
   /* Start address. */
@@ -474,108 +551,20 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp, const char* file_name, char** save_ptr)
+setup_stack (void **esp) 
 {
   uint8_t *kpage;
   bool success = false;
-  char s[] = " ";
-  char *token;
-  int length;
-  int argc = 0;
-  int pointersPushed = 0;
-  void* tempEsp;
-  char* argp;
-  char** argv;
-  printf("asdf 1`\n"); 
+
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  printf("asdf 2`\n"); 
   if (kpage != NULL) 
     {
-      printf("asdf 3`\n"); 
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-      {
-        printf("asdf 4`\n"); 
         *esp = PHYS_BASE;
-        tempEsp = *esp;
-        //charPtrSize = (int) ((char*) tempEsp - ((char*) tempEsp - 1)); //This line, and lines similar to it decrement the stack pointer by the size of the casted type.
-  
-        //Push the file name onto the stack
-        length = strlen(file_name) + 1; 
-        tempEsp = (char*)tempEsp - length;
-        strlcpy((char*) tempEsp, file_name, length);
-        argc++;
-        printf("%s\n", (char*) tempEsp);
-        //Check whether we can push more arguments 
-        if (PHYS_BASE - tempEsp > MAX_ARGUMENT_SIZE)
-        {
-          printf("asdf 5`\n"); 
-          return false;
-        }
-
-        //Push each argument onto the stack
-        for (token = strtok_r (s, " ", save_ptr); token != NULL;
-        token = strtok_r (NULL, " ", save_ptr))
-        {
-          printf("asdf 6`\n"); 
-          length = strlen(token) + 1; 
-          tempEsp = ((char*) tempEsp - length);
-          strlcpy((char*) tempEsp, token, length);
-          argc++;
-        
-          //Check whether we can push more arguments 
-          if (PHYS_BASE - tempEsp > MAX_ARGUMENT_SIZE)
-          {
-            printf("asdf 7`\n"); 
-            return false;
-          }
-        }
-        //Preserve the location of tempEsp so we can push the addresses of the arguments later
-        argp = (char *)tempEsp;
-        //Align words by rounding the stack
-        tempEsp = tempEsp - 4 + (int)(*esp - tempEsp) % 4;
-        //PUSH null pointer
-        tempEsp = ((char*) tempEsp - 1);
-        *((char*)tempEsp) = 0;
-
-        //PUSH addresses of arguments
-        while(pointersPushed < argc)
-        {
-          while(*(argp - 1) != '\0')
-          {
-            printf("asdf 8`\n"); 
-            argp++;
-          }
-          printf("asdf 9`\n"); 
-          tempEsp = ((char*) tempEsp - 1);
-          *((char**) tempEsp) = argp;    
-          pointersPushed++;
-          argp++;
-        }
-        printf("asdf 10`\n"); 
-        //PUSH the array argv
-        argv = (char**) tempEsp;
-        tempEsp = ((char**) tempEsp - 1);
-        *((char***) tempEsp) = argv;
-        
-        //PUSH number of arguments   
-        tempEsp = ((int *) tempEsp - 1);
-        *((int*) tempEsp) = argc;
-
-        //PUSH fake memory address
-        tempEsp = ((void **) tempEsp - 1);
-        *((void **) tempEsp) = 0;
-
-        //Make esp point to correct place on the stack again.
-        *esp = tempEsp;
-      }
       else
-      {
-        printf("asdf 11`\n"); 
         palloc_free_page (kpage);
-      }
     }
-    printf("asdf 12`\n"); 
   return success;
 }
 

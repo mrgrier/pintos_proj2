@@ -23,7 +23,7 @@
 #define MAX_ARGUMENT_SIZE 4096
 
 static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static bool load (char *cmdline, void (**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -212,7 +212,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, const char* file_name, char** save_ptr);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -223,7 +223,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (char *file_name, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -322,7 +322,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, file_name, save_ptr))
+  if (!setup_stack (esp, file_name, &save_ptr))
     goto done;
 
   /* Start address. */
@@ -447,7 +447,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp, const char* file_name, char** save_ptr) 
+setup_stack (void **esp, const char* file_name, char** save_ptr)
 {
   uint8_t *kpage;
   bool success = false;
@@ -470,7 +470,7 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
       {
         *esp = PHYS_BASE;
         tempEsp = *esp;
-        charPtrSize = tempEsp - ((char*) tempEsp - 1); //This line, and lines similar to it decrement the stack pointer by the size of the casted type.
+        charPtrSize = (int) ((char*) tempEsp - ((char*) tempEsp - 1)); //This line, and lines similar to it decrement the stack pointer by the size of the casted type.
   
         //Push the file name onto the stack
         length = strlen(file_name) + 1; 
@@ -483,8 +483,8 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
           return false;
 
         //Push each argument onto the stack
-        for (token = strtok_r (s, " ", &save_ptr); token != NULL;
-        token = strtok_r (NULL, " ", &save_ptr))
+        for (token = strtok_r (s, " ", save_ptr); token != NULL;
+        token = strtok_r (NULL, " ", save_ptr))
         {
           length = strlen(token) + 1; 
           tempEsp -= (charPtrSize * length);
@@ -522,7 +522,7 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         
         //PUSH number of arguments   
         tempEsp = ((int *) tempEsp - 1);
-        *tempEsp = argc;
+        *((void**) tempEsp) = argc;
 
         //PUSH fake memory address
         tempEsp = ((void **) tempEsp - 1);

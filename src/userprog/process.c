@@ -483,9 +483,6 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
   int length;
   int argc = 0;
   int pointersPushed = 0;
-  int charPtrSize;
-  int charPtrPtrSize;
-  int* intPtr;
   void* tempEsp;
   char* argp;
   char** argv;
@@ -501,14 +498,14 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         printf("asdf 4`\n"); 
         *esp = PHYS_BASE;
         tempEsp = *esp;
-        charPtrSize = (int) ((char*) tempEsp - ((char*) tempEsp - 1)); //This line, and lines similar to it decrement the stack pointer by the size of the casted type.
+        //charPtrSize = (int) ((char*) tempEsp - ((char*) tempEsp - 1)); //This line, and lines similar to it decrement the stack pointer by the size of the casted type.
   
         //Push the file name onto the stack
         length = strlen(file_name) + 1; 
         tempEsp = (char*)tempEsp - length;
         strlcpy((char*) tempEsp, file_name, length);
         argc++;
-
+        printf("%s\n", (char*) tempEsp);
         //Check whether we can push more arguments 
         if (PHYS_BASE - tempEsp > MAX_ARGUMENT_SIZE)
         {
@@ -522,7 +519,7 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         {
           printf("asdf 6`\n"); 
           length = strlen(token) + 1; 
-          tempEsp -= (charPtrSize * length);
+          tempEsp = ((char*) tempEsp - length);
           strlcpy((char*) tempEsp, token, length);
           argc++;
         
@@ -538,7 +535,7 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         //Align words by rounding the stack
         tempEsp = tempEsp - 4 + (int)(*esp - tempEsp) % 4;
         //PUSH null pointer
-        tempEsp -= charPtrSize;
+        tempEsp = ((char*) tempEsp - 1);
         *((char*)tempEsp) = 0;
 
         //PUSH addresses of arguments
@@ -550,7 +547,7 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
             argp++;
           }
           printf("asdf 9`\n"); 
-          tempEsp -= charPtrSize;
+          tempEsp = ((char*) tempEsp - 1);
           *((char**) tempEsp) = argp;    
           pointersPushed++;
           argp++;
@@ -563,7 +560,7 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         
         //PUSH number of arguments   
         tempEsp = ((int *) tempEsp - 1);
-        *((void**) tempEsp) = argc;
+        *((int*) tempEsp) = argc;
 
         //PUSH fake memory address
         tempEsp = ((void **) tempEsp - 1);

@@ -35,6 +35,7 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
+  printf("In process_execute\n");
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -46,6 +47,7 @@ process_execute (const char *file_name)
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+  printf("Leaving process_execute\n");
   return tid;
 }
 
@@ -67,9 +69,10 @@ start_process (void *file_name_)
   thread_current()->cp->load_status = success
                                     ? LOADED_SUCCESSFULLY
                                     : LOAD_FAILED;
-
+  printf("asdf 14\n");
   /* If load failed, quit. */
   palloc_free_page (file_name);
+  printf("asdf 15\n");
   if(!success)
     thread_exit();
 
@@ -96,15 +99,23 @@ int
 process_wait (tid_t child_tid UNUSED) 
 {
   struct child_process *child = get_child_process(child_tid);
+  printf("In process_wait\n");
   if(!child)
+  {
+    printf("process_wait returned -1\n");
     return -1;
+  }
   if(child->wait)
+  {
+    printf("process_wait returned -1\n");
     return -1;
+  }
   child -> wait = true;
   while(!child->done)
     barrier();
   int status = child -> status;
   remove_child_process(child);
+  printf("Leaving process_wait\n");
   return status;
 }
 
@@ -333,6 +344,7 @@ load (char *file_name, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+  printf("asdf 13\n");
   return success;
 }
 
@@ -462,12 +474,16 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
   void* tempEsp;
   char* argp;
   char** argv;
+  printf("asdf 1`\n"); 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  printf("asdf 2`\n"); 
   if (kpage != NULL) 
     {
+      printf("asdf 3`\n"); 
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
       {
+        printf("asdf 4`\n"); 
         *esp = PHYS_BASE;
         tempEsp = *esp;
         charPtrSize = (int) ((char*) tempEsp - ((char*) tempEsp - 1)); //This line, and lines similar to it decrement the stack pointer by the size of the casted type.
@@ -480,12 +496,16 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
 
         //Check whether we can push more arguments 
         if (PHYS_BASE - tempEsp > MAX_ARGUMENT_SIZE)
+        {
+          printf("asdf 5`\n"); 
           return false;
+        }
 
         //Push each argument onto the stack
         for (token = strtok_r (s, " ", save_ptr); token != NULL;
         token = strtok_r (NULL, " ", save_ptr))
         {
+          printf("asdf 6`\n"); 
           length = strlen(token) + 1; 
           tempEsp -= (charPtrSize * length);
           strlcpy((char*) tempEsp, token, length);
@@ -493,7 +513,10 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         
           //Check whether we can push more arguments 
           if (PHYS_BASE - tempEsp > MAX_ARGUMENT_SIZE)
+          {
+            printf("asdf 7`\n"); 
             return false;
+          }
         }
         //Preserve the location of tempEsp so we can push the addresses of the arguments later
         argp = (char *)tempEsp;
@@ -508,13 +531,16 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         {
           while(*(argp - 1) != '\0')
           {
+            printf("asdf 8`\n"); 
             argp++;
           }
+          printf("asdf 9`\n"); 
           tempEsp -= charPtrSize;
           *((char**) tempEsp) = argp;    
           pointersPushed++;
           argp++;
         }
+        printf("asdf 10`\n"); 
         //PUSH the array argv
         argv = (char**) tempEsp;
         tempEsp = ((char**) tempEsp - 1);
@@ -532,8 +558,12 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         *esp = tempEsp;
       }
       else
+      {
+        printf("asdf 11`\n"); 
         palloc_free_page (kpage);
+      }
     }
+    printf("asdf 12`\n"); 
   return success;
 }
 

@@ -57,6 +57,7 @@ static void
 start_process (void *file_name_)
 {
   char *file_name = file_name_;
+  printf("%s\n", file_name_);
   struct intr_frame if_;
   bool success;
 
@@ -65,7 +66,9 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+  printf("%d\n", success);
   success = load (file_name, &if_.eip, &if_.esp);
+  printf("%d\n", success);
   thread_current()->cp->load_status = success
                                     ? LOADED_SUCCESSFULLY
                                     : LOAD_FAILED;
@@ -73,6 +76,7 @@ start_process (void *file_name_)
   /* If load failed, quit. */
   palloc_free_page (file_name);
   printf("asdf 15\n");
+  printf("%d\n", success);
   if(!success)
     thread_exit();
 
@@ -102,17 +106,21 @@ process_wait (tid_t child_tid UNUSED)
   printf("In process_wait\n");
   if(!child)
   {
+    printf("asdf 16\n");
     printf("process_wait returned -1\n");
     return -1;
   }
   if(child->wait)
   {
+    printf("asdf 17\n");
     printf("process_wait returned -1\n");
     return -1;
   }
+  printf("asdf 18\n");
   child -> wait = true;
   while(!child->done)
     barrier();
+  printf("asdf 19\n");
   int status = child -> status;
   remove_child_process(child);
   printf("Leaving process_wait\n");
@@ -123,6 +131,7 @@ process_wait (tid_t child_tid UNUSED)
 void
 process_exit (void)
 {
+  printf("asdf 20\n");
   struct thread *cur = thread_current ();
   uint32_t *pd;
 

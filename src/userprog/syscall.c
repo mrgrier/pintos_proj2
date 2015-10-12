@@ -29,11 +29,14 @@ bool create(const char* file, unsigned initial_size);
 bool remove(const char* file);
 int open(const char* file);
 int filesize(int fd);
+int read(int fd, void *buffer, unsigned length);
+int write(int fd, const void *buffer, unsigned length);
 
 // helper functions
 void retrieve_args_from_intr_frame(struct intr_frame* frame, int* args, int num_args);
 int translate_to_kernel_pointer(const void* pointer);
 void validate_pointer(const void*);
+void validate_buffer(void* buffer, unsigned size);
 int syscall_wait(pid_t pid);
 
 void syscall_init(void)
@@ -102,7 +105,21 @@ syscall_handler(struct intr_frame *f UNUSED)
       break;
     }
     case SYS_READ:
+    {
+      retrieve_args_from_intr_frame(f, &args[0], 3);
+      validate_buffer((void*) args[1], (unsigned) args[2]);
+      args[1] = translate_to_kernel_pointer((const void*) args[1]);
+      f->eax = read(args[0], (void*) args[1], (unsigned) args[2]);
+      break;
+    }
     case SYS_WRITE:
+    {
+      retrieve_args_from_intr_frame(f, &args[0], 3);
+      validate_buffer((void*) args[1], (unsigned) args[2]);
+      args[1] = translate_to_kernel_pointer((const void*) args[1]);
+      f->eax = write(args[0], (void*) args[1], (unsigned) args[2]);
+      break;
+    }
     case SYS_SEEK:
     case SYS_TELL:
     case SYS_CLOSE:
@@ -192,32 +209,59 @@ int filesize(int fd)
   return size;
 }
 
-int read(int fd, void* buffer, unsigned size)
+int read(int fd, void *buffer, unsigned length)
 {
   if(fd == STDIN_FILENO)
   {
     unsigned i;
     uint8_t* cast_buffer = (uint8_t*) buffer;
 
-    for(i = 0; i < size; i++)
+    for(i = 0; i < length; i++)
     {
       cast_buffer[i] = input_getc();
     }
 
-    return size;
+    return length;
   }
 
   int bytes_read;
   lock_acquire(&file_lock);
 
   struct file* f = get_file(fd);
-  bytes_read = f == NULL ? -1 : file_read(f, buffer, size);
+  bytes_read = f == NULL 
+                    ? -1 
+                    : file_read(f, buffer, length);
 
   lock_release(&file_lock);
   return bytes_read;
 }
 
-void retrieve_args_from_intr_frame(struct intr_frame* frame, int* args, int num_args)
+int write(int fd, const void *buffer, unsigned length)
+{
+  if(fd == STDOUT_FILENO)
+  {
+    putbuf(buffer, length);
+    return length;
+  }
+
+  int bytes_written;
+
+  lock_acquire(&file_lock);
+
+  struct file* f = get_file(fd);
+
+  bytes_written = f == NULL
+                       ? 0
+                       : file_write(f, buffer, length);
+
+  lock_release(&file_lock);
+
+  return bytes_written;
+}
+
+void retrieve_args_from_intr_frame(struct intr_frame* frame, 
+                                   int* args, 
+                                   int num_args)
 {
   int i;
   int* arg_pointer;
@@ -245,6 +289,17 @@ void validate_pointer(const void* pointer)
 {
   if(!is_user_vaddr(pointer))
     exit(ERROR);
+}
+
+void validate_buffer(void* buffer, unsigned size)
+{
+  unsigned i;
+  char* cast_buffer = (char*) buffer;
+  
+  for(i = 0; i < size; i++, cast_buffer++)
+  {
+    validate_pointer((const void*) cast_buffer);
+  }
 }
 
 int

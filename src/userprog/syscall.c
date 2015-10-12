@@ -31,6 +31,9 @@ int open(const char* file);
 int filesize(int fd);
 int read(int fd, void *buffer, unsigned length);
 int write(int fd, const void *buffer, unsigned length);
+void seek(int fd, unsigned position);
+unsigned tell(int fd);
+void close(int fd);
 
 // helper functions
 void retrieve_args_from_intr_frame(struct intr_frame* frame, int* args, int num_args);
@@ -46,7 +49,7 @@ void syscall_init(void)
 }
 
 static void
-syscall_handler(struct intr_frame *f UNUSED) 
+syscall_handler(struct intr_frame *f)
 {
   int args[MAX_ARGUMENTS];
   validate_pointer(f->esp);
@@ -121,10 +124,21 @@ syscall_handler(struct intr_frame *f UNUSED)
       break;
     }
     case SYS_SEEK:
+    {
+      retrieve_args_from_intr_frame(f, &args[0], 2);
+      seek(args[0], (unsigned) args[1]);
+      break;
+    }
     case SYS_TELL:
+    {
+      retrieve_args_from_intr_frame(f, &args[0], 1);
+      f->eax = tell(args[0]);
+      break;
+    }
     case SYS_CLOSE:
     {
-      // TODO: implement these functionalities.
+      retrieve_args_from_intr_frame(f, &args[0], 1);
+      close(args[0]);
       break;
     }
     default:
@@ -257,6 +271,41 @@ int write(int fd, const void *buffer, unsigned length)
   lock_release(&file_lock);
 
   return bytes_written;
+}
+
+void seek(int fd, unsigned position)
+{
+  lock_acquire(&file_lock);
+
+  struct file* f = get_file(fd);
+
+  if(f != NULL)
+    file_seek(f, position);
+
+  lock_release(&file_lock);
+}
+
+unsigned tell(int fd)
+{
+  unsigned offset;
+
+  lock_acquire(&file_lock);
+
+  struct file* f = get_file(fd);
+  offset = f == NULL 
+                ? -1 
+                : file_tell(f);
+
+  lock_release(&file_lock);
+
+  return offset;
+}
+
+void close(int fd)
+{
+  lock_acquire(&file_lock);
+  close_file(fd);
+  lock_release(&file_lock);
 }
 
 void retrieve_args_from_intr_frame(struct intr_frame* frame, 

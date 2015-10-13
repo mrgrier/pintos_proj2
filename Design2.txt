@@ -1,5 +1,5 @@
 		           +--------------------------+
-				   |         CIS 520          |
+     				   |         CIS 520          |
 		           | PROJECT 2: USER PROGRAMS |
 		           |     DESIGN DOCUMENT      |
 		           +--------------------------+
@@ -8,9 +8,9 @@
 
 >> Fill in the names of your group members.
 
-FirstName LastName
-FirstName LastName
-FirstName LastName
+Montana Grier
+Austin Fangman
+Adam Seiwert
 
 ---- PRELIMINARIES ----
 
@@ -21,6 +21,9 @@ FirstName LastName
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
 
+We drew inspiration for argument passing and system calls from this github 
+repository https://github.com/ryantimwilson/Pintos-Project-2
+
 			   ARGUMENT PASSING
 			   ================
 
@@ -30,19 +33,38 @@ FirstName LastName
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+MAX_ARGUMENT_SIZE was added in order to check if we can add more arguments
+it is defined as the value 4096
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe how you implemented argument parsing.  How do
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
 
+We make a temporary stack pointer tempEsp to do our stack modifications with.
+Then we make room for the file name string by moving tempEsp down.  We then push the file name 
+string onto the stack.  We then make room for the remaining argument strings, and push them onto the stack.  We do the check if (PHYS_BASE - tempEsp > MAX_ARGUMENT_SIZE) after we 
+push the strings to make sure we can still push more arguments, and so we don't overflow the stack page.  At this point the order of the argument strings doesn't really matter because later we will pass pointers to those string's stack addresses.  The value of tempEsp is presereved so we can parse for the string addresses later.  We then perform a stack 
+alignment for improved speed by rounding the stack address to a multiple of 4.  A NULL pointer sentinel is then pushed.  We then look back at the stack address we preserved earlier and increment that pointer until the memory address - 1 equals NULL, which means that we can push the stack address of that string.  We do this until all argument addresses are pushed.  Doing it this way ensures that the stack addresses of the arguments are put on the stack in reverse order.  We then push the argv array.  Then we push the number of arguments argc.  A fake memory address is then pushed by necessity.  The last thing we need to do is make esp equal to tempEsp to return it to the correct value.     
+
 ---- RATIONALE ----
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
 
+It implements strtok_r because it has the saveptr argument that allows us to parse for the first string we need and then saveptr has the vlue of the rest of the string we are parsing.  strtok_r also can be used by multiple threads simultaneously.
+
+
 >> A4: In Pintos, the kernel separates commands into an executable name
->> and arguments.  In Unix-like systems, the shell does this
+>> and arguments. In Unix-like systems, the shell does this
 >> separation.  Identify at least two advantages of the Unix approach.
+
+This way, the operating system can identify files that should be locked and 
+read-only during execution (ie the programs that are running).
+
+If the shell parses arguments, it reduces its dependency on the kernel. In general
+this is good: one specific reason is because the overhead incurred with context 
+switching is reduced if the shell does not need the kernel to separate arguments.
 
 			     SYSTEM CALLS
 			     ============
@@ -53,14 +75,39 @@ FirstName LastName
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+struct child_process - this struct is used by threads to manage their information 
+  relative to any parent processes.
+  
+struct list child_list - each thread maintains a list of child processes that it
+  has executed.
+  
+struct process_file - this struct is used by processes to keep track of their 
+  opened files.
+  
+struct list file_list - each thread maintains a list of child processes that it
+  has executed.
+
+struct lock file_lock - this lock is used to synchronize critical sections of 
+  system calls that read or modify files.
+
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
+
+File descriptors are unique within the scope of each running thread. Upon opening a file,
+a thread will increment it's file descriptor member and assign that file descriptor 
+number to the newly opened file.
 
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
+
+If we are wanting to read or write with stdin or stdout, we use the available
+functions input_getc and putbuf.
+
+Otherwise, we acquire a lock for the filesystem and use the provided calls from
+file.h and filesys.h
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
@@ -69,8 +116,31 @@ FirstName LastName
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
 
+In our implementation, there appears to be only one call to pagedir_get_page() and if
+we are causing a full page of 4096 bytes then theoretically we will only have one inspection
+of the page table since there should only be one page due to the fact that the data will fit
+within one page. So the least amount of times would be 1 and the greatest amount of times it 
+could be called would be 4096, one for eacy byte.
+
+For a system call that only copies 2 bytes of data, we could once again do it with the least
+amount of calls being 1 since 2 bytes would be able to fit inside of one page. The greatest 
+amount of times that we could do this would be 8192. Reason being is we could copy the same 2
+bytes 4096 times each (4096*2).
+
+
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
+
+For the most part with the wait system call we stuck to conditions that were stated in the 
+project instructions. If the pid of the child process does not refer to the child of the
+calling process, we return -1. If the process that calls wait is already in a wait state, then
+we return -1. Otherwise if those conditions are not met, we assign the child processes's status 
+to wait and call barrier() to busy wait on the thread until it is no longer in a wait status.
+It relates to process termination in the sense that once the parent process exits, it sets it's 
+child's process to done which has it terminate it's busy wait and carry on eventually 
+terminateing that child process itself and any other processes down the line, depending 
+on the scenario.
+
 
 >> B6: Any access to user program memory at a user-specified address
 >> can fail due to a bad pointer value.  Such accesses must cause the
@@ -86,12 +156,26 @@ FirstName LastName
 >> paragraphs, describe the strategy or strategies you adopted for
 >> managing these issues.  Give an example.
 
+Before we perform system calls, we validate the esp stack pointer we are given 
+from the interrupt frame. As we proceed with any given system call, we manipulate
+lists of child_process structs and process_file structs. Occasionally, we use 
+locks to synchronize access to the file system. If problems arise during file 
+access, we simply modify any return values to indicate that an error occured, and 
+always release the lock we used. In many cases this is done with a simple ternary
+operator.
+
 ---- SYNCHRONIZATION ----
 
 >> B7: The "exec" system call returns -1 if loading the new executable
 >> fails, so it cannot return before the new executable has completed
 >> loading.  How does your code ensure this?  How is the load
 >> success/failure status passed back to the thread that calls "exec"?
+
+We acquire a lock before calling process_execute to synchronize critical 
+calls to functions in file.h. When the call to process_execute returns with the 
+pid of the new process, we can return either the pid or an error code.
+The return value for system calls is placed into the eax register of the interrupt 
+frame.
 
 >> B8: Consider parent process P with child process C.  How do you
 >> ensure proper synchronization and avoid race conditions when P
@@ -100,16 +184,36 @@ FirstName LastName
 >> terminates without waiting, before C exits?  After C exits?  Are
 >> there any special cases?
 
+If wait is called for a child process that no longer exists (has already exited),
+or is already been waited on (the child process exists but the parent is already
+waiting on the child), an error code is returned from the system call. Any pertinent
+resources have already been freed (in the case of a child that has already exited), 
+or will be freed correctly in the future (because the parent is already waiting and 
+resources will be freed upon child exit).
+
+When a parent process exits, regardless of whether any child processes are still 
+alive, it removes all child_process elements from its child_list, frees each 
+element, and exits without explicitly killing any child processes.
+
 ---- RATIONALE ----
 
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
 
+We implemented it the way that we did because out of the two methods described in the
+design document, the one we chose was specified as being the easier of the two. 
+
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
 
+One advantage is that file descriptors are unique on each thread. A potential 
+disadvantage is that threads will have duplicate file descriptors. This may or 
+may not be a security or synchronization issue.
+
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
+
+We did not change the pid-to-tid identity mapping.
 
 			   SURVEY QUESTIONS
 			   ================

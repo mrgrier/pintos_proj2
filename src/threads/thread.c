@@ -475,7 +475,12 @@ init_thread (struct thread *t, const char *name, int priority)
 
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
-  strlcpy (t->name, name, sizeof t->name);
+  char* tempName;
+  char* hack;
+  tempName = name;
+  char *save_ptr; // make a char* to pass into strtok_r for the first time
+  hack = strtok_r(tempName, " ", &save_ptr);
+  strlcpy (t->name, hack, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;

@@ -35,7 +35,6 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
-  printf("In process_execute\n");
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -47,7 +46,6 @@ process_execute (const char *file_name)
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
-  printf("Leaving process_execute\n");
   return tid;
 }
 
@@ -57,7 +55,6 @@ static void
 start_process (void *file_name_)
 {
   char *file_name = file_name_;
-  printf("start_process file_name = %s\n", file_name);
   struct intr_frame if_;
   bool success;
 
@@ -66,17 +63,12 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  printf("%d\n", success);
   success = load (file_name, &if_.eip, &if_.esp);
-  printf("%d\n", success);
   thread_current()->cp->load_status = success
                                     ? LOADED_SUCCESSFULLY
                                     : LOAD_FAILED;
-  printf("asdf 14\n");
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  printf("asdf 15\n");
-  printf("%d\n", success);
   if(!success)
     thread_exit();
 
@@ -103,27 +95,19 @@ int
 process_wait (tid_t child_tid UNUSED) 
 {
   struct child_process *child = get_child_process(child_tid);
-  printf("In process_wait\n");
   if(!child)
   {
-    printf("asdf 16\n");
-    printf("process_wait returned -1\n");
     return -1;
   }
   if(child->wait)
   {
-    printf("asdf 17\n");
-    printf("process_wait returned -1\n");
     return -1;
   }
-  printf("asdf 18\n");
   child -> wait = true;
   while(!child->done)
     barrier();
-  printf("asdf 19\n");
   int status = child -> status;
   remove_child_process(child);
-  printf("Leaving process_wait\n");
   return status;
 }
 
@@ -131,7 +115,6 @@ process_wait (tid_t child_tid UNUSED)
 void
 process_exit (void)
 {
-  printf("asdf 20\n");
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
@@ -266,16 +249,13 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
 
-  printf("before token load file_name = %s\n", file_name);
   char *save_ptr; // make a char* to pass into strtok_r for the first time
   tempFile = strtok_r(file_name, " ", &save_ptr); // Get the first word in the command(the file name)
-  printf("after token load file_name = %s\n", file_name);
 
   /* Open executable file. */
   file = filesys_open (tempFile);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", tempFile);
       goto done; 
     }
 
@@ -288,7 +268,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", tempFile);
       goto done; 
     }
 
@@ -352,7 +331,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-    printf("load file_name = %s\n", file_name);
   if (!setup_stack (esp, file_name, &save_ptr))
     goto done;
 
@@ -364,7 +342,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
-  printf("asdf 13\n");
   return success;
 }
 
@@ -490,16 +467,12 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
   void* tempEsp;
   char* argp;
   char** argv;
-  printf("asdf 1`\n"); 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  printf("asdf 2`\n"); 
   if (kpage != NULL) 
     {
-      printf("asdf 3`\n"); 
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
       {
-        printf("asdf 4`\n"); 
         *esp = PHYS_BASE;
         tempEsp = *esp;
         //charPtrSize = (int) ((char*) tempEsp - ((char*) tempEsp - 1)); //This line, and lines similar to it decrement the stack pointer by the size of the casted type.
@@ -507,14 +480,11 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         //Push the file name onto the stack
         length = strlen(file_name) + 1; 
         tempEsp = (char*)tempEsp - length;
-        printf("file_name = %s\n", file_name);
         strlcpy((char*) tempEsp, file_name, length);
         argc++;
-        printf("%s\n", (char*) tempEsp);
         //Check whether we can push more arguments 
         if (PHYS_BASE - tempEsp > MAX_ARGUMENT_SIZE)
         {
-          printf("asdf 5`\n"); 
           return false;
         }
 
@@ -522,17 +492,14 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         for (token = strtok_r (NULL, " ", save_ptr); token != NULL;
         token = strtok_r (NULL, " ", save_ptr))
         {
-          printf("asdf 6`\n"); 
           length = strlen(token) + 1; 
           tempEsp = ((char*) tempEsp - length);
-          printf("%s\n", token);
           strlcpy((char*) tempEsp, token, length);
           argc++;
         
           //Check whether we can push more arguments 
           if (PHYS_BASE - tempEsp > MAX_ARGUMENT_SIZE)
           {
-            printf("asdf 7`\n"); 
             return false;
           }
         }
@@ -542,27 +509,21 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         tempEsp = (tempEsp - 4) + (int)(*esp - tempEsp) % 4;
         *((char*)tempEsp) = 0;
         //PUSH null pointer
-        printf("1st %p\n", tempEsp);
         tempEsp = (tempEsp - sizeof(char *));
-        printf("2nd %p\n", tempEsp);
         *((char**)tempEsp) = 0;
 
         //PUSH addresses of arguments
         while(pointersPushed < argc)
         {
-          printf("%s\n", argp);
           while(*(argp - 1) != '\0')
           {
-            printf("asdf 8`\n"); 
             argp++;
           }
-          printf("asdf 9`\n"); 
           tempEsp = (tempEsp - sizeof(char *));
           *((char**) tempEsp) = argp;    
           pointersPushed++;
           argp++;
         }
-        printf("asdf 10`\n"); 
         //PUSH the array argv
         argv = (char**) tempEsp;
         tempEsp = (tempEsp - sizeof(char **));
@@ -581,11 +542,9 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
       }
       else
       {
-        printf("asdf 11`\n"); 
         palloc_free_page (kpage);
       }
     }
-    printf("asdf 12`\n"); 
   return success;
 }
 

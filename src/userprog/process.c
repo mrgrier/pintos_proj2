@@ -23,7 +23,7 @@
 #define MAX_ARGUMENT_SIZE 4096
 
 static thread_func start_process NO_RETURN;
-static bool load (char *cmdline, void (**eip) (void), void **esp);
+static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -229,13 +229,14 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (char *file_name, void (**eip) (void), void **esp) 
+load (const char *file_name, void (**eip) (void), void **esp)
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
   off_t file_ofs;
   bool success = false;
+  char *tempFile;
   int i;
 
   /* Allocate and activate page directory. */
@@ -245,13 +246,13 @@ load (char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   char *save_ptr; // make a char* to pass into strtok_r for the first time
-  file_name = strtok_r(file_name, " ", &save_ptr); // Get the first word in the command(the file name)
+  tempFile = strtok_r(file_name, " ", &save_ptr); // Get the first word in the command(the file name)
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (tempFile);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", tempFile);
       goto done; 
     }
 
@@ -264,7 +265,7 @@ load (char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      printf ("load: %s: error loading executable\n", tempFile);
       goto done; 
     }
 
@@ -457,7 +458,6 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
 {
   uint8_t *kpage;
   bool success = false;
-  char s[] = " ";
   char *token;
   int length;
   int argc = 0;
@@ -489,7 +489,7 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
           return false;
 
         //Push each argument onto the stack
-        for (token = strtok_r (s, " ", save_ptr); token != NULL;
+        for (token = strtok_r (NULL, " ", save_ptr); token != NULL;
         token = strtok_r (NULL, " ", save_ptr))
         {
           length = strlen(token) + 1; 
@@ -504,10 +504,11 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         //Preserve the location of tempEsp so we can push the addresses of the arguments later
         argp = (char *)tempEsp;
         //Align words by rounding the stack
-        tempEsp = tempEsp - 4 + (int)(*esp - tempEsp) % 4;
-        //PUSH null pointer
-        tempEsp -= charPtrSize;
+        tempEsp = (tempEsp - 4) + (int)(*esp - tempEsp) % 4;
         *((char*)tempEsp) = 0;
+        //PUSH null pointer
+        tempEsp = (tempEsp - sizeof(char *));
+        *((char**)tempEsp) = 0;
 
         //PUSH addresses of arguments
         while(pointersPushed < argc)
@@ -516,14 +517,14 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
           {
             argp++;
           }
-          tempEsp -= charPtrSize;
+          tempEsp = (tempEsp - sizeof(char *));
           *((char**) tempEsp) = argp;    
           pointersPushed++;
           argp++;
         }
         //PUSH the array argv
         argv = (char**) tempEsp;
-        tempEsp = ((char**) tempEsp - 1);
+        tempEsp = (tempEsp - sizeof(char **));
         *((char***) tempEsp) = argv;
         
         //PUSH number of arguments   
@@ -531,7 +532,7 @@ setup_stack (void **esp, const char* file_name, char** save_ptr)
         *((void**) tempEsp) = argc;
 
         //PUSH fake memory address
-        tempEsp = ((void **) tempEsp - 1);
+        tempEsp = tempEsp - sizeof(void **);
         *((void **) tempEsp) = 0;
 
         //Make esp point to correct place on the stack again.

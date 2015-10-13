@@ -169,9 +169,14 @@ void exit(int status)
 
 pid_t exec(const char* cmd_line)
 {
+  lock_acquire(&file_lock);
   pid_t new_process_pid = process_execute(cmd_line);
+  lock_release(&file_lock);
+  
   struct child_process* child = get_child_process(new_process_pid);
-  ASSERT(child);
+  
+  if(!child)
+    return ERROR;
 
   while(child->load_status == NOT_LOADED)
     barrier();

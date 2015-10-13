@@ -143,7 +143,6 @@ syscall_handler(struct intr_frame *f)
     }
     default:
     {
-      // now you fucked up.
       break;
     }
   }

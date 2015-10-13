@@ -16,6 +16,7 @@
 
 #define ERROR -1
 #define MAX_ARGUMENTS 3
+#define USER_VADDR_FLOOR ((void *) 0x08048000)
 
 struct lock file_lock;
 
@@ -156,6 +157,12 @@ void halt(void)
 void exit(int status)
 {
   struct thread* current = thread_current();
+
+  if(is_thread_alive(current->parent))
+  {
+    current->cp->status = status;
+  }
+
   printf("%s: exit(%d)\n", current->name, status);
   thread_exit();
 }
@@ -335,7 +342,7 @@ int translate_to_kernel_pointer(const void* pointer)
 
 void validate_pointer(const void* pointer)
 {
-  if(!is_user_vaddr(pointer))
+  if(!is_user_vaddr(pointer) || pointer < USER_VADDR_FLOOR)
     exit(ERROR);
 }
 
